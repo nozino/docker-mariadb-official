@@ -68,6 +68,7 @@ if [ "$1" = 'mysqld' -a -z "$wantHelp" -a "$(id -u)" = '0' ]; then
 	DATADIR="$(_get_config 'datadir' "$@")"
 	mkdir -p "$DATADIR"
 	chown -R mysql:mysql "$DATADIR"
+	chown -R mysql:mysql /etc/mysql/conf.d
 	exec gosu mysql "$BASH_SOURCE" "$@"
 fi
 
@@ -188,4 +189,25 @@ if [ "$1" = 'mysqld' -a -z "$wantHelp" ]; then
 	fi
 fi
 
-exec "$@"
+if [ -n "$MYSQL_GALERA_CLUSTER_ON" ]; then
+	if [ -z "$MYSQL_GALERA_CLUSTER_ADDRESS" ]; then
+		echo >&2 'error: galera cluster address is not specified '
+			echo >&2 '  You need to specify nore two of MYSQL_GALERA_CLUSTER_ADDRESS'
+			exit 1
+		fi
+
+	cnfpath="/etc/mysql/conf.d/galera.cnf"
+	echo "[galera]" >> $cnfpath
+	echo "wsrep_on=ON" >> $cnfpath
+	echo "wsrep_provider=/usr/lib/galera/libgalera_smm.so" >> $cnfpath
+	echo "wsrep_cluster_address=$MYSQL_GALERA_CLUSTER_ADDRESS" >> $cnfpath
+	echo "binlog_format=row" >> $cnfpath
+	echo "default_storage_engine=InnoDB" >> $cnfpath
+	echo "innodb_autoinc_lock_mode=2" >> $cnfpath
+
+	if [ -n "$MYSQL_GALERA_FIRST_NODE" ]; then
+		ARGS="--wsrep-new-cluster --wsrep_start_position=00000000-0000-0000-0000-000000000000:-1"
+	fi
+fi
+
+exec "$@" $ARGS
